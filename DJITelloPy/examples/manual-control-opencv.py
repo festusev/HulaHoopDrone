@@ -30,7 +30,8 @@ while True:
     img = frame_read.frame
     cv2.imshow("drone", img)
 
-    key = cv2.waitKey(1) & 0xff
+    key = cv2.waitKey(0)
+    print("Recieved key:", key)
     if key == 27: # ESC
         break
     elif key == ord('w'):
