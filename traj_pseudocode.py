@@ -1,6 +1,8 @@
 import numpy as np
 import rospy
 from geometry_msgs.msg import Twist
+from djitellopy import Tello
+import cvas2, math, time
 
 # Constants
 TIME_STEP = 0.1  # Time increment for prediction (seconds)
@@ -81,13 +83,14 @@ def find_best_point(trajectory, apex_height, drone_position, drone_velocity):
             best_point = point
     return best_point
 
+def passed_hoop():
+    pass
+
 # Main control loop
 def main():
     rospy.init_node("drone_hoop_navigation")
 
     # Publishers
-    cmd_vel_pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
-
     # Simulation parameters (replace these with real sensor data)
     hoop_position = np.array([0.0, 0.0, 5.0])  # Initial hoop position (x, y, z)
     hoop_velocity = np.array([0.0, 0.0, 2.0])  # Initial hoop velocity (x, y, z)
@@ -96,6 +99,11 @@ def main():
 
     rate = rospy.Rate(10)  # Control loop frequency (10 Hz)
 
+    tello = Tello()
+    tello.connect()
+
+    # tello.streamon()
+    tello.takeoff()
     while not rospy.is_shutdown():
         # Predict hoop trajectory
         hoop_apex_height = hoop_position[2] + (hoop_velocity[2]**2) / (2 * 9.81)
@@ -113,16 +121,16 @@ def main():
                 desired_velocity = desired_velocity / np.linalg.norm(desired_velocity) * MAX_SPEED
 
             # Publish velocity command
-            cmd_msg = Twist()
-            cmd_msg.linear.x = desired_velocity[0]
-            cmd_msg.linear.y = desired_velocity[1]
-            cmd_msg.linear.z = desired_velocity[2]
-            cmd_vel_pub.publish(cmd_msg)
+            tello.send_rc_control(desired_velocity)
 
         # Update drone position for simulation purposes
         drone_position += drone_velocity * TIME_STEP
-
         rate.sleep()
+    
+        # check if drone passed hoop in forward/backward direction, and if so, land
+        if passed_hoop(drone_position):
+            break
+    tello.land()
 
 if __name__ == "__main__":
     try:
