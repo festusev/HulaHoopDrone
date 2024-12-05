@@ -5,13 +5,11 @@ from std_msgs.msg import String
 from geometry_msgs.msg import TransformStamped
 import numpy as np
 
-tello = Tello()
-tello.connect()
-
-tello.streamon()
-frame_read = tello.get_frame_read()
-
-tello.takeoff()
+# tello = Tello()
+# tello.connect()
+#
+# tello.streamon()
+# frame_read = tello.get_frame_read()
 
 hoop_cm = []
 drone_cm = []
