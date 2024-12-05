@@ -61,8 +61,3 @@ if __name__ == '__main__':
     start = input("Type 'Y' to start").lower()
     if start == "y" or start == "yes":
         capturing = True
-
-    tello.go_xyz_speed(200, 0, 0, 50)
-    # tello.curve_xyz_speed(100, 100, 0, 200, 0, 0, 50)
-
-    tello.land()
