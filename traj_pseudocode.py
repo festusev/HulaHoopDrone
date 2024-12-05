@@ -25,6 +25,7 @@ WEIGHTS = {
 
 # Buffers for past hoop positions
 past_positions = []
+past_times = []
 
 def fit_3d_parabola(past_positions, past_times):
     """
@@ -54,7 +55,7 @@ def fit_3d_parabola(past_positions, past_times):
     return coeff_x, coeff_y, coeff_z
 
 
-def predict_3d_trajectory(coeff_x, coeff_y, coeff_z, max_height):
+def predict_3d_trajectory(coeff_x, coeff_y, coeff_z, max_height, last_time):
     """
     Predict the hoop's trajectory using fitted 3D parabola coefficients.
 
@@ -67,23 +68,22 @@ def predict_3d_trajectory(coeff_x, coeff_y, coeff_z, max_height):
     """
     trajectory = []
 
-    for t in np.arange(0, LOOKAHEAD_TIME, TIME_STEP):
+    for t in np.arange(last_time+TIME_STEP, last_time+TIME_STEP+LOOKAHEAD_TIME, TIME_STEP):
         x = coeff_x[0] * t**2 + coeff_x[1] * t + coeff_x[2]
         y = coeff_y[0] * t**2 + coeff_y[1] * t + coeff_y[2]
         z = coeff_z[0] * t**2 + coeff_z[1] * t + coeff_z[2]
 
         # Respect height constraints
         if 0 <= z <= max_height:
-            trajectory.append(np.array([x, y, z]))
+            trajectory.append((t-last_time, np.array([x, y, z])))
     
     return trajectory
 
 
-
 # Helper function to compute feasibility score
-def feasibility_score(point, apex_height, drone_position, drone_velocity, max_speed, max_height):
+def feasibility_score(time, point, apex_height, drone_position, drone_velocity, max_speed, max_height):
     """Compute the feasibility score for a candidate point."""
-    required_velocity = (point - drone_position) / np.linalg.norm(point - drone_position)
+    required_velocity = (point - drone_position) / time
     required_speed = np.linalg.norm(required_velocity)
 
     # Height constraint
@@ -98,7 +98,7 @@ def feasibility_score(point, apex_height, drone_position, drone_velocity, max_sp
     apex_score = 1 - abs(point[2] - apex_height) / apex_height
 
     # Alignment score
-    align_score = np.dot(required_velocity, drone_velocity / np.linalg.norm(drone_velocity))
+    align_score = np.dot(required_velocity, drone_velocity / (np.linalg.norm(drone_velocity)+1e-6))
 
     # Time score
     time_score = 1 / np.linalg.norm(point - drone_position)
@@ -120,8 +120,10 @@ def find_best_point(trajectory, apex_height, drone_position, drone_velocity):
     """Find the best feasible point on the hoop's trajectory."""
     best_score = -np.inf
     best_point = None
-    for point in trajectory:
+    best_time = None
+    for time, point in trajectory:
         score = feasibility_score(
+            time,
             point,
             apex_height,
             drone_position,
@@ -130,15 +132,20 @@ def find_best_point(trajectory, apex_height, drone_position, drone_velocity):
             max_height=MAX_HEIGHT
         )
         if score > best_score:
+            best_time = time
             best_score = score
             best_point = point
-    return best_point
+    return best_time, best_point
 
-def update_past_positions(past_positions, new_position):
+def update_past_positions(past_positions, new_position, past_times, new_time):
     """Update the buffer of past hoop positions."""
     if len(past_positions) >= PAST_POINTS_WINDOW:
         past_positions.pop(0)
     past_positions.append(new_position)
+    if len(past_times) >= PAST_POINTS_WINDOW:
+        past_times.pop(0)
+    past_times.append(new_time)
+    return past_positions, past_times
 
 def passed_hoop():
     pass
@@ -149,38 +156,43 @@ def main():
 
     # Publishers
     # Simulation parameters (replace these with real sensor data)
-    hoop_position = np.array([0.0, 0.0, 5.0])  # Initial hoop position (x, y, z)
-    hoop_velocity = np.array([0.0, 0.0, 2.0])  # Initial hoop velocity (x, y, z)
+    hoop_position = np.array([0.0, 0.0, 0.0])  # Initial hoop position (x, y, z)
+    hoop_velocity = np.array([0.0, 0.0, 0.0])  # Initial hoop velocity (x, y, z)
     drone_position = np.array([0.0, 0.0, 0.0])  # Initial drone position (x, y, z)
     drone_velocity = np.array([0.0, 0.0, 0.0])  # Initial drone velocity (x, y, z)
-    last_time = time.time()
+    
 
     rate = rospy.Rate(10)  # Control loop frequency (10 Hz)
-
+    last_time = rospy.get_time()
     tello = Tello()
     tello.connect()
 
     tello.takeoff()
     while not rospy.is_shutdown():
         # Simulate time increment
-        current_time = time.time()
+        current_time = rospy.get_time()
         time_step = current_time - last_time
         last_time = current_time
+        #get the current drone position, and hoop_position
 
         # Update past positions buffer
-        update_past_positions(past_positions, hoop_position, current_time)
-
+        past_positions, past_times = update_past_positions(past_positions, hoop_position, past_times, current_time)
+        if len(past_positions) <= 3:
+            tello.send_rc_control(100, 0, 0, 0)
+            drone_velocity = np.array([100, 0, 0])
+            rate.sleep()
+            continue
         # Predict hoop trajectory using fitted parabola
-        coeffs = fit_3d_parabola(past_positions, current_time)
-        hoop_trajectory = predict_3d_trajectory(coeffs[0], coeffs[1], coeffs[2], 100.0)
+        coeffs = fit_3d_parabola(past_positions, past_times)
+        hoop_trajectory = predict_3d_trajectory(coeffs[0], coeffs[1], coeffs[2], 100.0, current_time)
 
         # Find the best feasible point
         hoop_apex_height = max(pos[2] for pos in hoop_trajectory) if hoop_trajectory else 5.0
-        best_point = find_best_point(hoop_trajectory, hoop_apex_height, drone_position, drone_velocity)
+        best_time, best_point = find_best_point(hoop_trajectory, hoop_apex_height, drone_position, drone_velocity)
 
         # Compute velocity command to reach the best point
         if best_point is not None:
-            desired_velocity = (best_point - drone_position) / np.linalg.norm(best_point - drone_position)
+            desired_velocity = (best_point - drone_position) / best_time
 
             # Constrain velocity magnitude
             if np.linalg.norm(desired_velocity) > MAX_SPEED:
@@ -190,8 +202,9 @@ def main():
             tello.send_rc_control(int(desired_velocity[0]*100), int(desired_velocity[1]*100), int(desired_velocity[2]*100), 0)
 
         # Update drone position for simulation purposes
-        drone_position += desired_velocity * time_step
+        drone_position += desired_velocity * time_step #won't need because we will get ground truth position info
         rate.sleep()
+        drone_velocity = desired_velocity
     
         # Check if the drone has passed the hoop
         if passed_hoop(drone_position):
