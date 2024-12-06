@@ -1,5 +1,6 @@
 import rospy
 from geometry_msgs.msg import TransformStamped
+from visualization_msgs.msg import Marker
 
 import matplotlib.pyplot as plt
 # from mpl_toolkits.mplot3d import Axes3D
@@ -7,23 +8,54 @@ from matplotlib.animation import FuncAnimation
 import numpy as np
 import threading
 import time
+import tf2_ros
 
 LSQ_POINTS = 15
 HOOP_R = 0.5
 PRED_GRANULARITY = 0.001 # Down to a millisecond
-g = -9.81 # -9.81e3 # VERIFY THAT THIS IS CORRECT FOR VICOM
+g = -9.81 # -9.81e3 # VERIFIED THAT THIS IS CORRECT FOR VICOM
 
-def hoop_callback(data):
-    global pred_hoop_cm, flythru_cm
+real_position_viz_pub = None
+
+def hoop_callback(event):
+
+    try:
+        pose = tfBuffer.lookup_transform("vicon/world", "vicon/hoop_real/hoop_real", rospy.Time())
+    except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
+        return
+    
+    data = pose
+
+
+    global pred_hoop_cm, flythru_cm, hoop_cm
     if not capturing:
         return
 
     # print("Hoop callback")
     #
-    t = data.header.stamp.to_sec()
+    # t = data.header.stamp.to_sec()
+    t = time.time()
     x = data.transform.translation.x
     y = data.transform.translation.y
     z = data.transform.translation.z
+
+    marker = Marker()
+    marker.header.frame_id = "vicon/world"
+    marker.header.stamp = rospy.Time.now()
+    marker.ns = "hoop"
+    marker.id = 0
+    marker.type = Marker.LINE_STRIP
+    marker.action = Marker.ADD
+    marker.pose.orientation.w = 1.0
+    marker.scale.x = 0.01
+    marker.color.r = 1.0
+    marker.color.a = 1.0
+    marker.points = []
+    marker.points.append(data.transform.translation)
+    marker.points.append(data.transform.translation)
+    real_position_viz_pub.publish(marker)
+
+    # print(f"{t}: {x}, {y}, {z}")
 
     # t = time.time() - t0
     # t = t/10
@@ -36,23 +68,30 @@ def hoop_callback(data):
     #
     # print("Time:", t, "t0: ", t0, "cur time:", t + t0)
     hoop_cm.append([x, y, z, t])
+    # hoop_cm = hoop_cm[-LSQ_POINTS - 2:]
+    if len(hoop_cm) > 2:
+        # print(hoop_cm[-1][3] - hoop_cm[-2][3])
+        hp = np.array(hoop_cm)
+        print(np.mean(hp[1:, 3] - hp[:-1, 3]))
 
-    if len(hoop_cm) > LSQ_POINTS:
-        filtered_points = np.array(hoop_cm) #filter_points(np.array(hoop_cm))
-        filtered_points[:, -1] -= filtered_points[0, -1] # Subtract the initial timestep
+        
+    # if len(hoop_cm) > LSQ_POINTS:
+    #     filtered_points = np.array(hoop_cm) #filter_points(np.array(hoop_cm))
 
-        if filtered_points is not None:
-            params = lsq(filtered_points)
-            pred_hoop_cm = pred_cm(params, np.arange(0, 20, PRED_GRANULARITY))
-            valid_hoop_cm_idx = np.argwhere(pred_hoop_cm[:, 2] > HOOP_R)
+    #     if filtered_points is not None:
+    #         filtered_points[:, -1] -= filtered_points[0, -1] # Subtract the initial timestep
+    #         # filter_points = filtered_points[-20:]
+    #         params = lsq(filtered_points)
+    #         pred_hoop_cm = pred_cm(params, np.arange(0, 20, PRED_GRANULARITY))
+    #         valid_hoop_cm_idx = np.argwhere(pred_hoop_cm[:, 2] > HOOP_R)
 
-            # Get the center of mass that is 1 second before hitting the ground
-            steps_before_impact = int(0.1 / PRED_GRANULARITY)
-            if valid_hoop_cm_idx.size > steps_before_impact:
-                flythru_cm = pred_hoop_cm[valid_hoop_cm_idx[-steps_before_impact]][0]
+    #         # Get the center of mass that is 1 second before hitting the ground
+    #         steps_before_impact = int(0.1 / PRED_GRANULARITY)
+    #         if valid_hoop_cm_idx.size > steps_before_impact:
+    #             flythru_cm = pred_hoop_cm[valid_hoop_cm_idx[-steps_before_impact]][0]
 
         # print(params)
-    time.sleep(0.01)
+    # time.sleep(0.01)
 
 def pred_cm(params, ts):
     cms = []
@@ -104,7 +143,7 @@ def lsq(cms):
     params = np.linalg.inv(X.T @ X) @ X.T @ Y
     params = params.T
     params = np.hstack([np.array([[0, 0, g]]).T, params])
-    print("Params:", params)
+    # print("Params:", params)
     return params
 
 def drone_callback(data):
@@ -141,12 +180,12 @@ def create_animation():
     scat_hoop_pred = ax.scatter([0], [0], [0], c='red', zorder=1, s=10)
 
     # Set plot limits
-    ax.set_xlim([0, 10])
-    ax.set_ylim([0, 10])
+    ax.set_xlim([-10, 10])
+    ax.set_ylim([-10, 10])
     ax.set_zlim([0, 10])
 
     # Animation
-    ani = FuncAnimation(fig, update_animation, interval=0.1)
+    ani = FuncAnimation(fig, update_animation, interval=0.01)
     plt.show()
 
 if __name__ == '__main__':
@@ -173,13 +212,20 @@ if __name__ == '__main__':
     freefall = -1
 
     rospy.init_node('flyer', anonymous=True)
-    rospy.Subscriber("/vicon/hoop_real/hoop_real", TransformStamped, hoop_callback)
-    rospy.Subscriber("/vicon/b_tello/b_tello", TransformStamped, drone_callback)
+    tfBuffer = tf2_ros.Buffer()
+    listener = tf2_ros.TransformListener(tfBuffer)
+    rospy.Timer(rospy.Duration(1.0/1000.0), hoop_callback)
+    real_position_viz_pub = rospy.Publisher("/hoop_viz", Marker, queue_size=10)
+
+    # rospy.Subscriber("/vicon/hoop_real/hoop_real", TransformStamped, hoop_callback)
+    # rospy.Subscriber("/vicon/b_tello/b_tello", TransformStamped, drone_callback)
 
     capturing = True
 
-    t1 = threading.Thread(target=create_animation)
-    t1.start()
+    # create_animation()
+
+    # t1 = threading.Thread(target=create_animation)
+    # t1.start()
 
     # plt.show(block=False)
     rospy.spin()
@@ -190,4 +236,4 @@ if __name__ == '__main__':
 
 
     # Display the plot
-    t1.join()
+    # t1.join()
