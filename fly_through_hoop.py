@@ -129,14 +129,9 @@ def lsq(cms):
     print("Params:", params)
     return params
 
-def hoop_listener():
-    rospy.Subscriber("/vicon/hoop_real/hoop_real", TransformStamped, hoop_callback)
-
 def drone_callback(data):
     pass
 
-def drone_listener():
-    rospy.Subscriber("/vicon/b_tello/b_tello", TransformStamped, drone_callback)
 
 if __name__ == '__main__':
     hoop_cm = []
@@ -177,14 +172,16 @@ if __name__ == '__main__':
     ani = FuncAnimation(fig, update_animation, interval=0.1)
 
     rospy.init_node('flyer', anonymous=True)
-    hoop_listener()
-    drone_listener()
+    rospy.Subscriber("/vicon/hoop_real/hoop_real", TransformStamped, hoop_callback)
+    rospy.Subscriber("/vicon/b_tello/b_tello", TransformStamped, drone_callback)
+
 
     capturing = True
 
-    # t1 = threading.Thread(target=lambda: [hoop_callback(None) for _ in range(1000)])
-    # t1.start()
+    t1 = threading.Thread(target=plt.show)
+    t1.start()
 
+    # plt.show(block=False)
     rospy.spin()
 
     # start = input("Type 'Y' to start").lower()
@@ -193,5 +190,4 @@ if __name__ == '__main__':
 
 
     # Display the plot
-    plt.show()
     t1.join()
