@@ -8,28 +8,6 @@ import numpy as np
 import threading
 import time
 
-# Update function for FuncAnimation
-def update_animation(frame):
-    """Update the scatter plot with new data."""
-
-    if flythru_cm is not None:
-        scat_flythru.zorder = 10
-        scat_flythru._offsets3d = ([flythru_cm[0].item()], [flythru_cm[1].item()], [flythru_cm[2].item()])
-
-    # Update data with the latest points
-    if len(hoop_cm) == 0:
-        return
-
-    new_offsets = np.array(hoop_cm)
-    scat_hoop.zorder = 2
-    scat_hoop._offsets3d = (new_offsets[:, 0], new_offsets[:, 1], new_offsets[:, 2])
-
-    # print("Predicting:", len(pred_hoop_cm), pred_hoop_cm[-1])
-    if len(pred_hoop_cm) == 0:
-        return
-    scat_hoop_pred.zorder = 1
-    scat_hoop_pred._offsets3d = (pred_hoop_cm[:, 0], pred_hoop_cm[:, 1], pred_hoop_cm[:, 2])
-
 LSQ_POINTS = 15
 HOOP_R = 0.5
 PRED_GRANULARITY = 0.001 # Down to a millisecond
@@ -132,6 +110,44 @@ def lsq(cms):
 def drone_callback(data):
     pass
 
+def create_animation():
+    # Update function for FuncAnimation
+    def update_animation(frame):
+        """Update the scatter plot with new data."""
+
+        if flythru_cm is not None:
+            scat_flythru.zorder = 10
+            scat_flythru._offsets3d = ([flythru_cm[0].item()], [flythru_cm[1].item()], [flythru_cm[2].item()])
+
+        # Update data with the latest points
+        if len(hoop_cm) == 0:
+            return
+
+        new_offsets = np.array(hoop_cm)
+        scat_hoop.zorder = 2
+        scat_hoop._offsets3d = (new_offsets[:, 0], new_offsets[:, 1], new_offsets[:, 2])
+
+        # print("Predicting:", len(pred_hoop_cm), pred_hoop_cm[-1])
+        if len(pred_hoop_cm) == 0:
+            return
+        scat_hoop_pred.zorder = 1
+        scat_hoop_pred._offsets3d = (pred_hoop_cm[:, 0], pred_hoop_cm[:, 1], pred_hoop_cm[:, 2])
+
+    # Initialize the plot
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    scat_flythru = ax.scatter([0], [0], [0], c='green', zorder=10, s=60)
+    scat_hoop = ax.scatter([0], [0], [0], c='blue', zorder=2, s=20)
+    scat_hoop_pred = ax.scatter([0], [0], [0], c='red', zorder=1, s=10)
+
+    # Set plot limits
+    ax.set_xlim([0, 10])
+    ax.set_ylim([0, 10])
+    ax.set_zlim([0, 10])
+
+    # Animation
+    ani = FuncAnimation(fig, update_animation, interval=0.1)
+    plt.show()
 
 if __name__ == '__main__':
     hoop_cm = []
@@ -156,29 +172,13 @@ if __name__ == '__main__':
     flythru_cm = None  # Center that we will fly through
     freefall = -1
 
-    # Initialize the plot
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    scat_flythru = ax.scatter([0], [0], [0], c='green', zorder=10, s=60)
-    scat_hoop = ax.scatter([0], [0], [0], c='blue', zorder=2, s=20)
-    scat_hoop_pred = ax.scatter([0], [0], [0], c='red', zorder=1, s=10)
-
-    # Set plot limits
-    ax.set_xlim([0, 10])
-    ax.set_ylim([0, 10])
-    ax.set_zlim([0, 10])
-
-    # Animation
-    ani = FuncAnimation(fig, update_animation, interval=0.1)
-
     rospy.init_node('flyer', anonymous=True)
     rospy.Subscriber("/vicon/hoop_real/hoop_real", TransformStamped, hoop_callback)
     rospy.Subscriber("/vicon/b_tello/b_tello", TransformStamped, drone_callback)
 
-
     capturing = True
 
-    t1 = threading.Thread(target=plt.show)
+    t1 = threading.Thread(target=create_animation)
     t1.start()
 
     # plt.show(block=False)
