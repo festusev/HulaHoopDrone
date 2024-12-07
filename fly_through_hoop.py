@@ -1,5 +1,5 @@
 import rospy
-from geometry_msgs.msg import TransformStamped, Point
+from geometry_msgs.msg import TransformStamped, Point, PointStamped
 from visualization_msgs.msg import Marker
 
 import matplotlib.pyplot as plt
@@ -10,13 +10,14 @@ import threading
 import time
 import tf2_ros
 
-LSQ_POINTS = 30
-HOOP_R = 0.5
+LSQ_POINTS = 10
+HOOP_R = 0.345
 PRED_GRANULARITY = 0.001 # Down to a millisecond
 g = -9.81 # -9.81e3 # VERIFIED THAT THIS IS CORRECT FOR VICOM
 
 real_position_viz_pub = None
 pred_position_viz_pub = None
+target_position_viz_pub = None
 
 list_points = []
 
@@ -104,6 +105,16 @@ def hoop_callback(event):
             if valid_hoop_cm_idx.size > steps_before_impact:
                 flythru_cm = pred_hoop_cm[valid_hoop_cm_idx[-steps_before_impact]][0]
 
+                point = Point()
+                point.x = flythru_cm[0]
+                point.y = flythru_cm[1]
+                point.z = flythru_cm[2]
+                pt_stamped = PointStamped(point=point)
+                pt_stamped.header.frame_id = "vicon/world"
+                pt_stamped.header.stamp = rospy.Time.now()
+                target_position_viz_pub.publish(pt_stamped)
+                print("Sending Target Position: ", point.x, point.y, point.z)
+
             marker = Marker()
             marker.header.frame_id = "vicon/world"
             marker.header.stamp = rospy.Time.now()
@@ -147,8 +158,8 @@ def filter_points(cms):
     #     return None
     nonzero = cms[np.nonzero(cms[1:, -1] - cms[:-1, -1])]
     print("Deleted:", cms.shape[0] - nonzero.shape[0])
-    if cms.shape[0] - nonzero.shape[0] > 12:
-        breakpoint()
+    # if cms.shape[0] - nonzero.shape[0] > 12:
+    #     breakpoint()
     return nonzero[-LSQ_POINTS:]
 
     # global freefall
@@ -264,6 +275,7 @@ if __name__ == '__main__':
     rospy.Timer(rospy.Duration(1.0/100.0), hoop_callback)
     real_position_viz_pub = rospy.Publisher("/hoop_viz", Marker, queue_size=10)
     pred_position_viz_pub = rospy.Publisher("/hoop_pred_viz", Marker, queue_size=10)
+    target_position_viz_pub = rospy.Publisher("/target_position", PointStamped, queue_size=10)
 
     # rospy.Subscriber("/vicon/hoop_real/hoop_real", TransformStamped, hoop_callback)
     # rospy.Subscriber("/vicon/b_tello/b_tello", TransformStamped, drone_callback)
