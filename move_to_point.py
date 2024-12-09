@@ -11,6 +11,8 @@ tello = Tello()
 tello.connect()
 
 fly = True
+# tello.streamon()
+# frame_read = tello.get_frame_read()
 
 if fly:
     t0 = time.time()
