@@ -19,27 +19,33 @@ if fly:
     tello.takeoff()
     t1 = time.time()
     print("Took Off: ", t1 - t0)
+    # tello.send_rc_control(0, 0, 0, 0)
     tello.send_rc_control(0, 100, 0, 0)
     t2 = time.time()
     print("Warmed Up, ", t2 - t1)
+else:
+    t2 = time.time()
 
 # tello.curve_xyz_speed(100, 100, 0, 200, 0, 0, 50)
 
 
-fixed_target = [1, 2, 1]
+fixed_target = [-1, -1, 1]
+fixed_target = None
 ran_once = False
 let_it_rip = False
+HOOP_R = 0.345
 
 def tello_callback(event):
     global ran_once
     if (ran_once):
         return
-    if time.time() - t2 > 5:
+    if time.time() - t2 > 3:
         print("No command detected, abandoning")
         tello.land()
         exit()
-    # ran_once = True
-    
+    if "tfBuffer" not in globals():
+        return
+
     try:
         # pose = tfBuffer.lookup_transform("vicon/world", "vicon/b_tello/b_tello", rospy.Time())
         pose = tfBuffer.lookup_transform("vicon/b_tello/b_tello", "vicon/world", rospy.Time())
@@ -56,6 +62,11 @@ def tello_callback(event):
     # diff = [fixed_target[0] - position[0], fixed_target[1] - position[1], fixed_target[2] - position[2]]
     # diff = np.array(diff)
     # diff *= 100
+
+    if fixed_target is None:
+        return
+    in_bounds = fixed_target[0] > -1.8 and fixed_target[0] < 1.2 and fixed_target[1] > -1.5 and fixed_target[1] < 3.9
+    print(f"Goal Position in bounds: {in_bounds}")
 
     target_pose_msg = PoseStamped()
     target_pose_msg.header.frame_id = "vicon/world"
@@ -76,18 +87,19 @@ def tello_callback(event):
 
     transformed_pose = np.array([transformed_pose.pose.position.x, transformed_pose.pose.position.y, transformed_pose.pose.position.z])
     transformed_pose *= 100
-    transformed_pose *= 1.4
+    transformed_pose *= 1.3
 
     transformed_pose = transformed_pose.astype(int)
     # transformed_pose = np.clip(transformed_pose, 20, 500)
 
 
     # tello.go_xyz_speed(-100, 0, 0, 10)
-    print(f"Fixed Target: {fixed_target}")
+    # print(f"Fixed Target: {fixed_target}")
     if fly and let_it_rip:
         print(fixed_target)
         print("READY, flying to", fixed_target)
         tello.go_xyz_speed(int(transformed_pose[1]), -int(transformed_pose[0]), int(transformed_pose[2]), 100)
+        # tello.send_rc_control(int(transformed_pose[1]), -int(transformed_pose[0]), int(transformed_pose[2]), 100)
         t3 = time.time()
         print("Sent XYZ: ", t3 - t2)
         ran_once = True
@@ -99,7 +111,10 @@ def let_it_rip_callback(data):
     print("data: ", data.data)
     global let_it_rip
     if data.data == True:
+        print("Letting it rip")
         let_it_rip = True
+    else:
+        print("Not letting it rip")
     
 
 def point_callback(data):
@@ -115,6 +130,7 @@ rospy.Subscriber("/let_it_rip", Bool, let_it_rip_callback)
 rospy.Subscriber("/target_position", PointStamped, point_callback)
 tfBuffer = tf2_ros.Buffer()
 listener = tf2_ros.TransformListener(tfBuffer)
+rospy.sleep(0.1)
 # tello_callback(None)
 
 rospy.spin()

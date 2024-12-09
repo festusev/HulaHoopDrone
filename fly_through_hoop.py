@@ -1,6 +1,7 @@
 import rospy
 from geometry_msgs.msg import TransformStamped, Point, PointStamped
 from visualization_msgs.msg import Marker
+from std_msgs.msg import Float64, Bool
 
 import matplotlib.pyplot as plt
 # from mpl_toolkits.mplot3d import Axes3D
@@ -10,7 +11,8 @@ import threading
 import time
 import tf2_ros
 
-LSQ_POINTS = 10
+LSQ = False
+LSQ_POINTS = 6
 HOOP_R = 0.345
 PRED_GRANULARITY = 0.001 # Down to a millisecond
 g = -9.81 # -9.81e3 # VERIFIED THAT THIS IS CORRECT FOR VICOM
@@ -70,6 +72,24 @@ def hoop_callback(event):
     marker.points = list_points
     real_position_viz_pub.publish(marker)
 
+    # Free Fall Detector
+    # if len(hoop_cm) > 2 and (not (abs(t-hoop_cm[-1][3]) == 0)) and (not (abs(hoop_cm[-1][3]-hoop_cm[-2][3]) == 0.0)):
+    #     prev_vz = (hoop_cm[-1][2] - hoop_cm[-2][2]) / (hoop_cm[-1][3] - hoop_cm[-2][3] +1e-6)
+    #     vz = (z - hoop_cm[-1][2]) / (t - hoop_cm[-1][3] +1e-6)
+    #     az = (vz - prev_vz) / (t - hoop_cm[-1][3] +1e-6)
+
+    #     # print("Az:", az)
+    #     msg = Float64()
+    #     msg.data = az
+    #     debug_pub.publish(msg)
+    #     # Approx 9.81 m/s^2
+    #     if az < -9.7 and az > -9.9:
+    #         print("Freefall detected")
+            
+        
+
+   
+
     # print(f"{t}: {x}, {y}, {z}")
 
     # t = time.time() - t0
@@ -83,61 +103,62 @@ def hoop_callback(event):
     #
     # print("Time:", t, "t0: ", t0, "cur time:", t + t0)
     hoop_cm.append([x, y, z, t])
+    
     # if len(hoop_cm) > 2:
-        # print(hoop_cm[-1][3] - hoop_cm[-2][3])
+    #     print(hoop_cm[-1][3] - hoop_cm[-2][3])
     #     hp = np.array(hoop_cm)
         # print(np.mean(hp[1:, 3] - hp[:-1, 3]))
 
-        
-    if len(hoop_cm) > LSQ_POINTS:
-        filtered_points = filter_points(np.array(hoop_cm))
+    # if LSQ:
+    #     if len(hoop_cm) > LSQ_POINTS:
+    #         filtered_points = filter_points(np.array(hoop_cm))       
 
-        if filtered_points is not None:
-            filtered_points[:, -1] -= filtered_points[0, -1] # Subtract the initial timestep
-            # filter_points = filtered_points[-20:]
-            params = lsq(filtered_points)
+    #         if filtered_points is not None:
+    #             filtered_points[:, -1] -= filtered_points[0, -1] # Subtract the initial timestep
+    #             # filter_points = filtered_points[-20:]
+    #             params = lsq(filtered_points)
+                    
+    #             pred_hoop_cm = pred_cm(params, np.arange(0, 10, PRED_GRANULARITY))
+    #             valid_hoop_cm_idx = np.argwhere(pred_hoop_cm[:, 2] > HOOP_R)
+
+    #             # Get the center of mass that is 1 second before hitting the ground
+    #             steps_before_impact = int(0.1 / PRED_GRANULARITY)
+    #             if valid_hoop_cm_idx.size > steps_before_impact:
+    #                 flythru_cm = pred_hoop_cm[valid_hoop_cm_idx[-steps_before_impact]][0]
+
+    #                 point = Point()
+    #                 point.x = flythru_cm[0]
+    #                 point.y = flythru_cm[1]
+    #                 point.z = flythru_cm[2]
+    #                 pt_stamped = PointStamped(point=point)
+    #                 pt_stamped.header.frame_id = "vicon/world"
+    #                 pt_stamped.header.stamp = rospy.Time.now()
+    #                 target_position_viz_pub.publish(pt_stamped)
+    #                 print("Sending Target Position: ", point.x, point.y, point.z)
+
+    #             marker = Marker()
+    #             marker.header.frame_id = "vicon/world"
+    #             marker.header.stamp = rospy.Time.now()
+    #             marker.ns = "hoop_pred"
+    #             marker.id = 1
+    #             marker.type = Marker.LINE_STRIP
+    #             marker.action = Marker.ADD
+    #             marker.pose.orientation.w = 1.0
+
+    #             marker.scale.x = 0.01
+    #             marker.color.g = 1.0
+    #             marker.color.a = 1.0
+    #             marker.points = []
+
+    #             for cm in pred_hoop_cm:
+    #                 point = Point()
+    #                 point.x = cm[0]
+    #                 point.y = cm[1]
+    #                 point.z = cm[2]
+    #                 # print(f"Pred hoop cm: {cm}")
+    #                 marker.points.append(point)
                 
-            pred_hoop_cm = pred_cm(params, np.arange(0, 10, PRED_GRANULARITY))
-            valid_hoop_cm_idx = np.argwhere(pred_hoop_cm[:, 2] > HOOP_R)
-
-            # Get the center of mass that is 1 second before hitting the ground
-            steps_before_impact = int(0.1 / PRED_GRANULARITY)
-            if valid_hoop_cm_idx.size > steps_before_impact:
-                flythru_cm = pred_hoop_cm[valid_hoop_cm_idx[-steps_before_impact]][0]
-
-                point = Point()
-                point.x = flythru_cm[0]
-                point.y = flythru_cm[1]
-                point.z = flythru_cm[2]
-                pt_stamped = PointStamped(point=point)
-                pt_stamped.header.frame_id = "vicon/world"
-                pt_stamped.header.stamp = rospy.Time.now()
-                target_position_viz_pub.publish(pt_stamped)
-                print("Sending Target Position: ", point.x, point.y, point.z)
-
-            marker = Marker()
-            marker.header.frame_id = "vicon/world"
-            marker.header.stamp = rospy.Time.now()
-            marker.ns = "hoop_pred"
-            marker.id = 1
-            marker.type = Marker.LINE_STRIP
-            marker.action = Marker.ADD
-            marker.pose.orientation.w = 1.0
-
-            marker.scale.x = 0.01
-            marker.color.g = 1.0
-            marker.color.a = 1.0
-            marker.points = []
-
-            for cm in pred_hoop_cm:
-                point = Point()
-                point.x = cm[0]
-                point.y = cm[1]
-                point.z = cm[2]
-                # print(f"Pred hoop cm: {cm}")
-                marker.points.append(point)
-            
-            pred_position_viz_pub.publish(marker)
+    #             pred_position_viz_pub.publish(marker)
 
 
 
@@ -157,7 +178,7 @@ def filter_points(cms):
     # if (cms[-20:, -1] - cms[-21:-1, -1] == 0).all():
     #     return None
     nonzero = cms[np.nonzero(cms[1:, -1] - cms[:-1, -1])]
-    print("Deleted:", cms.shape[0] - nonzero.shape[0])
+    # print("Deleted:", cms.shape[0] - nonzero.shape[0])
     # if cms.shape[0] - nonzero.shape[0] > 12:
     #     breakpoint()
     return nonzero[-LSQ_POINTS:]
@@ -204,9 +225,6 @@ def lsq(cms):
     # print("Params:", params)
     return params
 
-def drone_callback(data):
-    pass
-
 def create_animation():
     # Update function for FuncAnimation
     def update_animation(frame):
@@ -246,6 +264,71 @@ def create_animation():
     ani = FuncAnimation(fig, update_animation, interval=0.01)
     plt.show()
 
+def let_it_rip_callback(data):
+    # print("data: ", data.data)
+    global let_it_rip
+    if data.data == True:
+        # point = Point()
+        # point.x = hoop_cm[-1][0]
+        # point.y = hoop_cm[-1][1]
+        # point.z = hoop_cm[-1][2]
+        # pt_stamped = PointStamped(point=point)
+        # pt_stamped.header.frame_id = "vicon/world"
+        # pt_stamped.header.stamp = rospy.Time.now()
+        # target_position_viz_pub.publish(pt_stamped)
+        # return
+
+        if len(hoop_cm) > LSQ_POINTS:
+            filtered_points = filter_points(np.array(hoop_cm))       
+
+            if filtered_points is not None:
+                filtered_points[:, -1] -= filtered_points[0, -1] # Subtract the initial timestep
+                # filter_points = filtered_points[-20:]
+                params = lsq(filtered_points)
+                    
+                pred_hoop_cm = pred_cm(params, np.arange(0, 10, PRED_GRANULARITY))
+                valid_hoop_cm_idx = np.argwhere(pred_hoop_cm[:, 2] > HOOP_R)
+
+                # Get the center of mass that is 0,1 second before hitting the ground
+                steps_before_impact = int(0.1 / PRED_GRANULARITY)
+                if valid_hoop_cm_idx.size > steps_before_impact:
+                    flythru_cm = pred_hoop_cm[valid_hoop_cm_idx[-steps_before_impact]][0]
+
+                    point = Point()
+                    point.x = flythru_cm[0]
+                    point.y = flythru_cm[1]
+                    point.z = flythru_cm[2]
+                    pt_stamped = PointStamped(point=point)
+                    pt_stamped.header.frame_id = "vicon/world"
+                    pt_stamped.header.stamp = rospy.Time.now()
+                    target_position_viz_pub.publish(pt_stamped)
+                    # print("Sending Target Position: ", point.x, point.y, point.z)
+
+                marker = Marker()
+                marker.header.frame_id = "vicon/world"
+                marker.header.stamp = rospy.Time.now()
+                marker.ns = "hoop_pred"
+                marker.id = 1
+                marker.type = Marker.LINE_STRIP
+                marker.action = Marker.ADD
+                marker.pose.orientation.w = 1.0
+
+                marker.scale.x = 0.01
+                marker.color.g = 1.0
+                marker.color.a = 1.0
+                marker.points = []
+
+                for cm in pred_hoop_cm:
+                    point = Point()
+                    point.x = cm[0]
+                    point.y = cm[1]
+                    point.z = cm[2]
+                    # print(f"Pred hoop cm: {cm}")
+                    marker.points.append(point)
+                
+                pred_position_viz_pub.publish(marker)
+    
+
 if __name__ == '__main__':
     hoop_cm = []
     pred_hoop_cm = np.array([])
@@ -272,10 +355,12 @@ if __name__ == '__main__':
     rospy.init_node('flyer', anonymous=True)
     tfBuffer = tf2_ros.Buffer()
     listener = tf2_ros.TransformListener(tfBuffer)
-    rospy.Timer(rospy.Duration(1.0/100.0), hoop_callback)
+    rospy.Timer(rospy.Duration(1.0/125.0), hoop_callback)
     real_position_viz_pub = rospy.Publisher("/hoop_viz", Marker, queue_size=10)
     pred_position_viz_pub = rospy.Publisher("/hoop_pred_viz", Marker, queue_size=10)
     target_position_viz_pub = rospy.Publisher("/target_position", PointStamped, queue_size=10)
+    debug_pub = rospy.Publisher("/debug", Float64, queue_size=10)
+    rospy.Subscriber("/let_it_rip", Bool, let_it_rip_callback)
 
     # rospy.Subscriber("/vicon/hoop_real/hoop_real", TransformStamped, hoop_callback)
     # rospy.Subscriber("/vicon/b_tello/b_tello", TransformStamped, drone_callback)
