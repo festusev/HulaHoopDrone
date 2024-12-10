@@ -221,6 +221,13 @@ def lsq(cms):
     # Y[:, -1] -= 1/2 * g * t**2    
     params_x = np.linalg.lstsq(X, x, rcond=None)[0]  # Fit x positions
     params_y = np.linalg.lstsq(X, y, rcond=None)[0]  # Fit y positions
+
+    #Using last 2 pts
+    # prev = cms[-2,:]
+    # curr = cms[-1,:]
+    # v_x = (curr[0] - prev[0])/(curr[3]-prev[3])
+    # v_x = (curr[1] - prev[1])/(curr[3]-prev[3])
+
     v_x = params_x[1]
     v_y = params_y[1] 
     return v_x, v_y
